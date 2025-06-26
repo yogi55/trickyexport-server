@@ -1,39 +1,26 @@
 const express = require('express');
 const sharp = require('sharp');
-const multer = require('multer');
 const app = express();
-const upload = multer();
 
-app.post('/compress', upload.single('image'), async (req, res) => {
-  const targetKB = parseInt(req.body.targetKB);
-  if (!req.file || !targetKB) return res.status(400).send('Missing params');
+app.use(express.json({ limit: '50mb' }));
 
-  const inputBuffer = req.file.buffer;
-  let format = req.body.format === 'png' ? 'png' : 'jpeg';
-
-  let minQ = 1, maxQ = 100, bestBuffer = null;
-
-  while (minQ <= maxQ) {
-    const q = Math.floor((minQ + maxQ) / 2);
-    let buff;
-    if (format === 'jpeg') {
-      buff = await sharp(inputBuffer).jpeg({ quality: q }).toBuffer();
+app.post('/optimize', async (req, res) => {
+  try {
+    const { data } = req.body; // base64 string
+    const format = req.query.format || 'png';
+    const inputBuffer = Buffer.from(data, 'base64');
+    let output;
+    if (format === 'jpeg' || format === 'jpg') {
+      output = await sharp(inputBuffer).jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+      res.type('image/jpeg');
     } else {
-      buff = await sharp(inputBuffer).png({ compressionLevel: 9 }).toBuffer();
+      output = await sharp(inputBuffer).png({ compressionLevel: 9, palette: true }).toBuffer();
+      res.type('image/png');
     }
-    const sizeKB = buff.length / 1024;
-    if (sizeKB <= targetKB) {
-      bestBuffer = buff;
-      minQ = q + 1;
-    } else {
-      maxQ = q - 1;
-    }
+    res.send(output);
+  } catch (err) {
+    res.status(500).send('Optimization failed: ' + err.message);
   }
-
-  if (!bestBuffer) return res.status(400).send('Cannot compress to target size');
-
-  res.set('Content-Type', format === 'jpeg' ? 'image/jpeg' : 'image/png');
-  res.send(bestBuffer);
 });
 
 const port = process.env.PORT || 3000;
